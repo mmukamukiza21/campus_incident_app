@@ -1,15 +1,20 @@
+
 import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import '../models/app_user.dart';
 import '../services/auth_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _service = AuthService();
+
   StreamSubscription<User?>? _sub;
 
   User? user;
   AppUser? profile;
+
   bool initialized = false;
   bool loading = false;
   String? error;
@@ -18,13 +23,32 @@ class AuthProvider extends ChangeNotifier {
     _sub = _service.authChanges.listen(_onAuthChanged);
   }
 
+  // Authentication status
   bool get isLoggedIn => user != null;
-  bool get isVerified => user?.emailVerified ?? false;
+
+ bool get isVerified => user?.emailVerified ?? false;
+
+  // Account roles
+  bool get isStudent => profile?.isStudent ?? false;
+
+  bool get isAdmin => profile?.isAdmin ?? false;
+
+  bool get isResponder => profile?.isResponder ?? false;
+
+  // Admin and responder are both staff.
   bool get isStaff => profile?.isStaff ?? false;
 
-  Future<void> _onAuthChanged(User? u) async {
-    user = u;
-    profile = u == null ? null : await _service.fetchProfile(u.uid);
+  String get roleLabel => profile?.roleLabel ?? 'Unknown';
+
+  Future<void> _onAuthChanged(User? currentUser) async {
+    user = currentUser;
+
+    if (currentUser == null) {
+      profile = null;
+    } else {
+      profile = await _service.fetchProfile(currentUser.uid);
+    }
+
     initialized = true;
     notifyListeners();
   }
@@ -33,13 +57,14 @@ class AuthProvider extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
+
     try {
       await action();
       return true;
     } on FirebaseAuthException catch (e) {
       error = _friendly(e.code);
       return false;
-    } catch (_) {
+    } catch (e) {
       error = 'Something went wrong. Please try again.';
       return false;
     } finally {
@@ -48,19 +73,39 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> register(String name, String email, String password) =>
-      _run(() => _service.register(name: name, email: email, password: password));
+  // Public registration always creates a student account.
+  Future<bool> register(
+    String name,
+    String email,
+    String password,
+  ) {
+    return _run(
+      () => _service.register(
+        name: name,
+        email: email,
+        password: password,
+      ),
+    );
+  }
 
-  Future<bool> login(String email, String password) =>
-      _run(() => _service.login(email, password));
+  Future<bool> login(String email, String password) {
+    return _run(() => _service.login(email, password));
+  }
 
   Future<void> logout() => _service.logout();
 
-  Future<bool> resendVerification() => _run(_service.resendVerification);
+  Future<bool> resendVerification() {
+    return _run(_service.resendVerification);
+  }
 
   Future<void> checkVerified() async {
     await _service.reloadUser();
     user = _service.currentUser;
+
+    if (user != null) {
+      profile = await _service.fetchProfile(user!.uid);
+    }
+
     notifyListeners();
   }
 
